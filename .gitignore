@@ -140,3 +140,6 @@ dmypy.json
 .pyre/
 /minigames/Minigames/
 /minigames/Minigames/
+
+# VsCode settings
+.vscode/
