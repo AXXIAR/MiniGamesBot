@@ -9,7 +9,6 @@ bot = None
 
 
 class ExecuteCommand(Command):
-
     name: str = "exec"
     help: str = "Execute python code."
     brief: str = "Exec snek"
@@ -17,7 +16,7 @@ class ExecuteCommand(Command):
     category: str = Developer
 
     @classmethod
-    async def handler(cls, context):
+    async def invoke(cls, context):
         if not cls.has_permission(context.message.author.id):
             return
 

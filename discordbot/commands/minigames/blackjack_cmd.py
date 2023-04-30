@@ -1,8 +1,7 @@
 from discordbot.categories.minigames import Minigames
 from discordbot.commands.command import Command
-from discordbot.gamemanager import GameManager
-from discordbot.user.discord_games.blackjack_dc import BlackjackDisc
-from discordbot.user.session import Session
+from discordbot.discordminigames.singleplayergames.blackjack_dc import BlackjackDiscord
+from discordbot.user.singleplayersession import SinglePlayerSession
 
 
 class BlackjackCommand(Command):
@@ -14,8 +13,8 @@ class BlackjackCommand(Command):
     category = Minigames
 
     @classmethod
-    async def handler(cls, context):
-        msg = await context.channel.send("Starting **blackjack** minigame")
+    async def invoke(cls, context):
+        message = await context.send("Starting **blackjack** minigame")
 
-        session = Session(cls.bot, context, msg, "blackjack", BlackjackDisc, [context.author])
-        await GameManager.start_session(session)
+        session = SinglePlayerSession(message, "blackjack", BlackjackDiscord, context.author)
+        await cls.bot.game_manager.start_session(session)

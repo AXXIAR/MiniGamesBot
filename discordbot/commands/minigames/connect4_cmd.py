@@ -1,8 +1,7 @@
 from discordbot.categories.minigames import Minigames
 from discordbot.commands.command import Command
-from discordbot.gamemanager import GameManager
-from discordbot.user.discord_games.connect4_dc import Connect4Disc
-from discordbot.user.session import Session
+from discordbot.discordminigames.multiplayergames.connect4_dc import Connect4Discord
+from discordbot.user.multiplayersession import MultiPlayerSession
 
 
 class Connect4Command(Command):
@@ -14,7 +13,7 @@ class Connect4Command(Command):
     category = Minigames
 
     @classmethod
-    async def handler(cls, context):
+    async def invoke(cls, context):
         args = context.message.content[len(cls.bot.prefix) + len(cls.name) + 1:].lstrip()
         if len(args) == 0:
             await context.reply("You need to tag a second player to play with.")
@@ -31,7 +30,6 @@ class Connect4Command(Command):
             await context.reply("You can not start connect4 with a bot.")
             return
 
-        msg = await context.send("Starting **connect4** minigame")
-        session = Session(cls.bot, context, msg, "connect4", Connect4Disc, [context.author, player2])
-        await GameManager.start_session(session)
-
+        message = await context.send("Starting **connect4** minigame")
+        session = MultiPlayerSession(message, "connect4", Connect4Discord, context.author, player2)
+        await cls.bot.game_manager.start_session(session)

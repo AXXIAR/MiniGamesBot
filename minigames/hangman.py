@@ -15,6 +15,7 @@ class Hangman(Minigame):
 
         if char not in self.word:
             self.lives -= 1
+            self.guessed.append(char)
             return
 
         for i in range(len(self.word)):
@@ -103,4 +104,5 @@ HANGMAN10 = " _____\n" \
             " |  / \\ \n" \
             "_|_ _ _"
 
-HANGMEN = [HANGMAN10, HANGMAN9, HANGMAN8, HANGMAN7, HANGMAN6, HANGMAN5, HANGMAN4, HANGMAN3, HANGMAN2, HANGMAN1, HANGMAN0]
+HANGMEN = [HANGMAN10, HANGMAN9, HANGMAN8, HANGMAN7, HANGMAN6, HANGMAN5, HANGMAN4, HANGMAN3, HANGMAN2, HANGMAN1,
+           HANGMAN0]

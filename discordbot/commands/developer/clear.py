@@ -12,13 +12,13 @@ class ClearCommand(Command):
     category = Developer
 
     @classmethod
-    async def handler(cls, context):
+    async def invoke(cls, context):
         args = context.message.content[len(cls.bot.prefix) + len(cls.name) + 1:].lstrip()
         try:
             if cls.has_permission(context.message.author.id):
                 await context.channel.purge(limit=int(args))
         except Exception as e:
-            print(e)
+            await context.channel.send(e)
             await context.channel.send("Yeah you fucked up mate.")
 
     @classmethod
@@ -26,4 +26,3 @@ class ClearCommand(Command):
         if user_id in DISCORD["DEVS"]:
             return True
         return False
-

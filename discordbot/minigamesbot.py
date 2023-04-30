@@ -4,7 +4,6 @@ import inspect
 import json
 import os
 import random
-import sys
 import time
 import traceback
 from zipfile import ZipFile
@@ -18,6 +17,7 @@ from discordbot.categories import *
 from discordbot.commands.command import Command
 from discordbot.databasemanager import DatabaseManager
 from discordbot.gamemanager import GameManager
+from discordbot.messagemanager import MessageManager
 from discordbot.utils.private import DISCORD
 from discordbot.utils.topgg import TopGG
 from discordbot.utils.variables import MINIGAMES
@@ -25,6 +25,7 @@ from generic.scheduler import Scheduler
 from minigames.lexicon import Lexicon
 
 PREFIXES_FILE = "bin/server_prefixes.json"
+MAX_MESSAGE_LENGTH = 1900
 
 
 class MiniGamesBot(Bot):
@@ -32,16 +33,15 @@ class MiniGamesBot(Bot):
         self.prefix = prefix
         intents = discord.Intents.default()
         intents.members = True
+        intents.reactions = True
         super().__init__(command_prefix=self.prefix, intents=intents, max_messages=5000)
 
         self.called_on_ready = False
         self.ctx = None
-        self.has_update = False
+        self.uptime = time.time()
         self.prefixes = {}
         self.my_commands = []
-        self.game_manager = GameManager
-        self.db = DatabaseManager
-        self.lexicon = Lexicon
+        self.game_manager = GameManager()
 
         # load commands
         self.categories = [
@@ -49,27 +49,20 @@ class MiniGamesBot(Bot):
             Developer,
             Minigames
         ]
-
         self.load_commands()
 
         # load managers
-        self.game_manager.on_startup(self)
-        self.db.on_startup(self)
-        self.lexicon.on_startup()
+        DatabaseManager.on_startup(self)
+        Lexicon.on_startup()
+        MessageManager.on_startup(self)
 
         # load prefixes
-        try:
-            file = open(PREFIXES_FILE)
-            json_strings = file.read()
-            self.prefixes = json.loads(json_strings)
-        except FileNotFoundError:
-            file = open(PREFIXES_FILE, 'w')
-            prefixes_json = json.dumps(self.prefixes)
-            file.write(prefixes_json)
-        file.close()
+        self.load_prefixes()
 
+        # setup scheduler
         self.scheduler = Scheduler()
-        self.scheduler.add(20, self.routine_updates)
+        self.scheduler.add(60, self.game_manager.close_inactive_sessions)
+        self.scheduler.add(45, self.routine_updates)
 
         # REMOVE THIS TRY EXCEPT
         try:
@@ -91,6 +84,9 @@ class MiniGamesBot(Bot):
         self.ctx = context
         await self.invoke(context)
 
+    async def on_raw_reaction_add(self, payload):
+        await MessageManager.on_raw_reaction(payload)
+
     async def on_ready(self):
         if not self.called_on_ready:
             self.called_on_ready = False
@@ -100,18 +96,29 @@ class MiniGamesBot(Bot):
     async def on_guild_remove(self, guild):
         if guild.name is None:
             return
-        self.db.add_to_servers_table(guild.id, "\"LEAVE\"")
+        DatabaseManager.add_to_servers_table(guild.id, "\"LEAVE\"")
         channel = await self.fetch_channel(DISCORD["STACK_CHANNEL"])
         await channel.send("LEFT GUILD '{0}' ({1}).".format(guild.name, guild.id))
 
     async def on_guild_join(self, guild):
-        self.db.add_to_servers_table(guild.id, "\"JOIN\"")
+        DatabaseManager.add_to_servers_table(guild.id, "\"JOIN\"")
         general = find(lambda x: 'general' in x.name, guild.text_channels)
         if general and general.permissions_for(guild.me).send_messages:
             await general.send('Hello {0}! The command prefix for this bot is **?**.\n'
                                'Type **?help** for a list of possible commands.'.format(guild.name))
         channel = await self.fetch_channel(DISCORD["STACK_CHANNEL"])
         await channel.send("JOINED GUILD '{0}' ({1}).".format(guild.name, guild.id))
+
+    def load_prefixes(self):
+        try:
+            file = open(PREFIXES_FILE)
+            json_strings = file.read()
+            self.prefixes = json.loads(json_strings)
+        except FileNotFoundError:
+            file = open(PREFIXES_FILE, 'w')
+            prefixes_json = json.dumps(self.prefixes)
+            file.write(prefixes_json)
+        file.close()
 
     def load_commands(self):
         modules = self.get_modules(os.path.join(os.getcwd(), "discordbot", "commands"), "discordbot.commands")
@@ -155,7 +162,6 @@ class MiniGamesBot(Bot):
         await channel.send(content[j * max_length:])
 
     async def send_formatted(self, content, channel_id=None):
-        max_length = 1900
         message_length = len(content)
         j = 0
         content = content[3:-3]
@@ -165,23 +171,20 @@ class MiniGamesBot(Bot):
         else:
             channel = self.ctx.channel
 
-        while max_length < message_length:
-            await channel.send("```\n" + content[j * max_length:(j + 1) * max_length] + "\n```")
-            message_length -= max_length
+        while MAX_MESSAGE_LENGTH < message_length:
+            await channel.send("```\n" + content[j * MAX_MESSAGE_LENGTH:(j + 1) * MAX_MESSAGE_LENGTH] + "\n```")
+            message_length -= MAX_MESSAGE_LENGTH
             j += 1
 
-        await channel.send("```\n" + content[j * max_length:] + "\n```")
+        await channel.send("```\n" + content[j * MAX_MESSAGE_LENGTH:] + "\n```")
 
     async def send_error(self, content):
         channel = self.get_channel(DISCORD["ERROR_CHANNEL"])
-
-        max_length = 1900
         contents = content.split("\n")
-
         content = ""
         for part in contents:
             temp = content + "\n" + part
-            if len(temp) > max_length:
+            if len(temp) > MAX_MESSAGE_LENGTH:
                 await channel.send("```\n" + content + "\n```")
                 content = part
             else:
@@ -190,11 +193,16 @@ class MiniGamesBot(Bot):
 
     async def routine_updates(self):
         while True:
-            await self.db.update()
+            await DatabaseManager.update()
             await self.save_prefixes()
             await self.change_status()
             self.remove_old_binaries()
-            await asyncio.sleep(60*30)
+            await asyncio.sleep(60 * 30)
+
+    async def on_restart(self):
+        await self.game_manager.on_restart()
+        await DatabaseManager.update()
+        await self.save_prefixes()
 
     async def change_status(self):
         n = random.randint(0, len(MINIGAMES) - 1)
@@ -222,23 +230,13 @@ class MiniGamesBot(Bot):
             if (filename.endswith(".svg") or filename.endswith(".png")) and f_created < dt:
                 os.remove(f_path)
 
-    async def log_not_found(self, session):
-        channel = await self.fetch_channel(852649391570812979)
-        await channel.send(f"**NOT FOUND MESSAGE**\n"
-                           f"```\nMessage ID: {session.message.id}\n"
-                           f"Channel ID: {session.message.channel.id}\n"
-                           f"Guild ID: {session.message.channel.guild.id}\n"
-                           f"Minigame: {session.minigame_name}\n"
-                           f"Player: {session.context.author.id}\n"
-                           f"Timestamp: {time.strftime('%Y-%m-%d  %H:%M:%S')}\n```")
-
     async def on_error(self, event_method, *args, **kwargs):
         error = "Time: {0}\n\n" \
                 "Ignoring exception in command {1}:\n\n" \
                 "args: {2}\n\n" \
                 "kwargs: {3}\n\n" \
-                "e: {4}\n\n"\
-                .format(time.strftime("%b %d %Y %H:%M:%S"), event_method, args, kwargs, traceback.format_exc())
+                "e: {4}\n\n" \
+            .format(time.strftime("%b %d %Y %H:%M:%S"), event_method, args, kwargs, traceback.format_exc())
         await self.send_error(error)
 
     async def on_command_error(self, context, exception):
@@ -260,9 +258,9 @@ class MiniGamesBot(Bot):
         error = "Time: {0}\n\n" \
                 "Ignoring exception in command {1}:\n\n" \
                 "Exception: \n\n{2}" \
-                .format(time.strftime("%b %d %Y %H:%M:%S"),
-                        context.command,
-                        ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__)))
+            .format(time.strftime("%b %d %Y %H:%M:%S"),
+                    context.command,
+                    ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__)))
 
         await self.send_error(error)
 
@@ -280,6 +278,8 @@ class MiniGamesBot(Bot):
         return missing_permissions
 
     async def send_missing_permissions(self, context, missing_permissions):
+        if len(missing_permissions) == 0:
+            return
         content = "I am missing the following permissions in this channel. Please enable these so the bot can work properly:\n"
         for missing_permission in missing_permissions:
             content += f"- {missing_permission}\n"

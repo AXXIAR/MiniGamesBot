@@ -1,89 +1,32 @@
 import asyncio
 
-import discord.errors
-
-from discordbot.utils.emojis import *
-
 
 class GameManager:
-    bot = None
+    def __init__(self):
+        self.sessions = list()
 
-    open_sessions = list()
-    paused_sessions = list()
+    async def start_session(self, session):
+        self.sessions.append(session)
+        await session.start_game()
 
-    @classmethod
-    def on_startup(cls, bot):
-        cls.bot = bot
+    def close_session(self, session):
+        self.sessions.remove(session)
 
-    @classmethod
-    async def on_restart(cls):
-        for session in cls.open_sessions:
-            try:
-                await session.message.edit(content=session.message.content+"\n\nSorry! I received an update and have to restart.")
-                await session.message.clear_reactions()
-                if session.message_extra is not None:
-                    await session.message_extra.clear_reactions()
-            except:
-                pass
+    def on_pending_update(self):
+        for session in self.sessions:
+            session.on_pending_update()
 
-        for session in cls.paused_sessions:
-            try:
-                await session.message.clear_reactions()
-            except:
-                pass
+    async def on_restart(self):
+        for session in self.sessions:
+            await session.on_restart()
 
-    @classmethod
-    def has_open_sessions(cls):
-        return len(cls.open_sessions) > 0
+    def has_open_sessions(self):
+        return len(self.sessions) > 0
 
-    @classmethod
-    def has_paused_sessions(cls):
-        return len(cls.paused_sessions) > 0
-
-    @classmethod
-    async def start_session(cls, session):
-        if cls.bot.has_update:
-            try:
-                await session.message.edit(content="Sorry! I can't start any new games right now. Boss says I have to restart soon:tm:. Try again later!")
-            except discord.errors.NotFound:
-                await cls.bot.log_not_found(session)
-            return
-
-        cls.open_sessions.append(session)
-        if session in cls.paused_sessions:
-            cls.paused_sessions.remove(session)
-        await session.start()
-
-    @classmethod
-    async def end_session(cls, session):
-        cls.paused_sessions.remove(session)
-        await session.close()
-
-    @classmethod
-    async def pause_session(cls, session):
-        cls.paused_sessions.append(session)
-        cls.open_sessions.remove(session)
-
-        try:
-            await session.message.edit(content=session.message.content + f"\n{session.get_summary()}")
-            await session.message.add_reaction(STOP)
-            await session.message.add_reaction(REPEAT)
-        except discord.errors.NotFound:
-            await cls.bot.log_not_found(session)
-            await cls.end_session(session)
-            return
-
-        def check(r, u):
-            return u.id in session.stats_players.keys() \
-                   and (r.emoji == STOP or r.emoji == REPEAT) \
-                   and r.message.id == session.message.id
-
-        try:
-            reaction, user = await cls.bot.wait_for('reaction_add', timeout=60.0, check=check)
-            if reaction.emoji == STOP:
-                await cls.end_session(session)
-            elif reaction.emoji == REPEAT:
-                await cls.start_session(session)
-        except asyncio.TimeoutError:
-            await cls.end_session(session)
-
+    async def close_inactive_sessions(self):
+        while True:
+            for session in self.sessions:
+                if await session.is_inactive():
+                    await session.close()
+                    self.close_session(session)
+            await asyncio.sleep(60 * 5)

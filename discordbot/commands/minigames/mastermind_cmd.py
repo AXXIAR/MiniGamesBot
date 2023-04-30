@@ -1,8 +1,7 @@
 from discordbot.categories.minigames import Minigames
 from discordbot.commands.command import Command
-from discordbot.gamemanager import GameManager
-from discordbot.user.discord_games.mastermind_dc import MastermindDisc
-from discordbot.user.session import Session
+from discordbot.discordminigames.singleplayergames.mastermind_dc import MastermindDiscord
+from discordbot.user.singleplayersession import SinglePlayerSession
 
 
 class MastermindCommand(Command):
@@ -14,8 +13,8 @@ class MastermindCommand(Command):
     category = Minigames
 
     @classmethod
-    async def handler(cls, context):
-        msg = await context.channel.send("Starting **mastermind** minigame")
+    async def invoke(cls, context):
+        message = await context.send("Starting **mastermind** minigame")
 
-        session = Session(cls.bot, context, msg, "mastermind", MastermindDisc, [context.author])
-        await GameManager.start_session(session)
+        session = SinglePlayerSession(message, "mastermind", MastermindDiscord, context.author)
+        await cls.bot.game_manager.start_session(session)
